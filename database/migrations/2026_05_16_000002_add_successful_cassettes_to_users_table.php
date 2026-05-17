@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasColumn('users', 'successfulCassettes')) {
+            return;
+        }
+
         Schema::table('users', function (Blueprint $table) {
             $table->unsignedInteger('successfulCassettes')->default(0)->after('profileImage');
         });
@@ -15,6 +19,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (!Schema::hasColumn('users', 'successfulCassettes')) {
+            return;
+        }
+
         Schema::table('users', function (Blueprint $table) {
             $table->dropColumn('successfulCassettes');
         });

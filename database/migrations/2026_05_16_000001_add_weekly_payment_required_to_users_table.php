@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasColumn('users', 'weeklyPaymentRequired')) {
+            return;
+        }
+
         Schema::table('users', function (Blueprint $table) {
             $table->boolean('weeklyPaymentRequired')->default(true)->after('weeklyPay');
         });
@@ -15,6 +19,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (!Schema::hasColumn('users', 'weeklyPaymentRequired')) {
+            return;
+        }
+
         Schema::table('users', function (Blueprint $table) {
             $table->dropColumn('weeklyPaymentRequired');
         });

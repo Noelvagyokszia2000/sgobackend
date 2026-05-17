@@ -5,15 +5,18 @@ namespace App\Http\Controllers;
 use App\Models\Vehicle;
 use App\Models\VehicleKey;
 use App\Models\VehicleWarning;
+use App\Services\ImageStorageService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class VehicleController extends Controller
 {
+    public function __construct(private ImageStorageService $images)
+    {
+    }
+
     public function index()
     {
         $this->removeExpiredWarnings();
@@ -42,7 +45,7 @@ class VehicleController extends Controller
         ]);
 
         $imageUrl = $request->hasFile('imageFile')
-            ? $this->storeVehicleImage($request)
+            ? $this->images->storeUploadedFile($request, 'imageFile', 'vehicle-images', 'vehicle')
             : $this->normalizeImageUrl($validated['image'] ?? null);
 
         $vehicle = Vehicle::create([
@@ -323,7 +326,7 @@ class VehicleController extends Controller
     {
         $vehicle = Vehicle::findOrFail($id);
 
-        $this->deletePublicStorageFile($vehicle->image);
+        $this->images->delete($vehicle->image);
 
         $vehicle->delete();
 
@@ -367,116 +370,7 @@ class VehicleController extends Controller
             ]);
         }
 
-        return $url;
-    }
-
-    private function storeVehicleImage(Request $request): string
-    {
-        $disk = $this->imageStorageDisk();
-
-        Log::info('Vehicle image upload started', [
-            'disk' => $disk,
-            'disk_url' => config("filesystems.disks.{$disk}.url"),
-            'ftp_host' => config("filesystems.disks.{$disk}.host"),
-            'ftp_root' => config("filesystems.disks.{$disk}.root"),
-            'ftp_ssl' => config("filesystems.disks.{$disk}.ssl"),
-            'ftp_passive' => config("filesystems.disks.{$disk}.passive"),
-        ]);
-
-        try {
-            $path = $this->putVehicleImageFile($disk, $request);
-        } catch (\Throwable $exception) {
-            Log::error('Vehicle image upload failed', [
-                'disk' => $disk,
-                'error' => $exception->getMessage(),
-            ]);
-
-            throw ValidationException::withMessages([
-                'imageFile' => 'A kep feltoltese nem sikerult a kulso tarhelyre. Ellenorizd az FTP adatokat es a cPanel mappat.'
-            ]);
-        }
-
-        if (!$path) {
-            Log::error('Vehicle image upload returned empty path', [
-                'disk' => $disk,
-            ]);
-
-            throw ValidationException::withMessages([
-                'imageFile' => 'A kep feltoltese nem sikerult a kulso tarhelyre.'
-            ]);
-        }
-
-        $url = $this->imageStorageUrl($path);
-
-        Log::info('Vehicle image upload finished', [
-            'disk' => $disk,
-            'path' => $path,
-            'url' => $url,
-        ]);
-
-        return $url;
-    }
-
-    private function deletePublicStorageFile(?string $url): void
-    {
-        if (!$url) {
-            return;
-        }
-
-        $disk = $this->imageStorageDisk();
-        $diskUrl = config("filesystems.disks.{$disk}.url");
-        $path = parse_url($url, PHP_URL_PATH);
-
-        if (!$path) {
-            return;
-        }
-
-        $urlHost = parse_url($url, PHP_URL_HOST);
-        $diskHost = $diskUrl ? parse_url($diskUrl, PHP_URL_HOST) : null;
-
-        if ($diskHost && $urlHost && $urlHost !== $diskHost) {
-            return;
-        }
-
-        $diskPathPrefix = $diskUrl ? (parse_url($diskUrl, PHP_URL_PATH) ?: '') : '';
-
-        if ($diskPathPrefix && str_starts_with($path, $diskPathPrefix)) {
-            $path = substr($path, strlen($diskPathPrefix));
-        } elseif (str_starts_with($path, '/storage/')) {
-            $path = substr($path, strlen('/storage/'));
-        }
-
-        Storage::disk($disk)->delete(ltrim($path, '/'));
-    }
-
-    private function imageStorageUrl(string $path): string
-    {
-        $disk = $this->imageStorageDisk();
-        $diskUrl = config("filesystems.disks.{$disk}.url");
-
-        if ($diskUrl) {
-            return rtrim($diskUrl, '/') . '/' . ltrim($path, '/');
-        }
-
-        return Storage::disk($disk)->url($path);
-    }
-
-    private function imageStorageDisk(): string
-    {
-        return config('filesystems.image_disk', 'public');
-    }
-
-    private function putVehicleImageFile(string $disk, Request $request): string|false
-    {
-        return retry(3, function () use ($disk, $request) {
-            if ($disk !== 'cpanel_images') {
-                return Storage::disk($disk)->putFile('vehicle-images', $request->file('imageFile'));
-            }
-
-            $fileName = 'vehicle-images-' . $request->file('imageFile')->hashName();
-
-            return Storage::disk($disk)->putFileAs('', $request->file('imageFile'), $fileName);
-        }, 750);
+        return $this->images->normalizeUrl($url);
     }
 
     private function resolveImgurPageImage(string $url): ?string

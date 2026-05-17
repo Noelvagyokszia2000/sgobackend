@@ -13,6 +13,7 @@ return new class extends Migration
             $table->foreignId('user_id')->constrained('users')->onDelete('cascade');
             $table->string('reason');
             $table->integer('amount');
+            $table->string('proof_link', 2048)->nullable();
             $table->text('note')->nullable();
             $table->string('status')->default('pending');
             $table->boolean('refunded')->default(false);
