@@ -15,9 +15,12 @@ class User extends Authenticatable
         'createdAt',
         'warn',
         'weeklyPay',
+        'weeklyPaymentRequired',
         'isAdmin',
         'rank_id',
-        'lastRankup'
+        'lastRankup',
+        'profileImage',
+        'successfulCassettes'
     ];
 
     protected $hidden = [
@@ -28,7 +31,9 @@ class User extends Authenticatable
         'isAdmin' => 'boolean',
         'createdAt' => 'date',
         'weeklyPay' => 'date',
-        'lastRankup' => 'datetime'
+        'weeklyPaymentRequired' => 'boolean',
+        'lastRankup' => 'datetime',
+        'successfulCassettes' => 'integer'
     ];
 
     public $timestamps = false;
@@ -61,5 +66,26 @@ class User extends Authenticatable
     public function issuedRankups()
     {
         return $this->hasMany(Rankup::class, 'issued_by');
+    }
+
+    public function vehicleKeys()
+    {
+        return $this->belongsToMany(
+            Vehicle::class,
+            'vehicle_keys'
+        )
+            ->wherePivot('status', 'approved')
+            ->withPivot('status')
+            ->withTimestamps();
+    }
+
+    public function refundRequests()
+    {
+        return $this->hasMany(RefundRequest::class, 'user_id');
+    }
+
+    public function handledRefundRequests()
+    {
+        return $this->hasMany(RefundRequest::class, 'handled_by');
     }
 }

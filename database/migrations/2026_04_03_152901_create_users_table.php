@@ -19,6 +19,8 @@ return new class extends Migration
             $table->boolean('isAdmin')->default(false);
             $table->foreignId('rank_id')->nullable()->constrained('ranks')->nullOnDelete();
             $table->timestamp('lastRankup')->nullable();
+            $table->string('profileImage')->nullable();
+            $table->unsignedInteger('successfulCassettes')->default(0);
         });
     }
 

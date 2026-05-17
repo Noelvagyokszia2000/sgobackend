@@ -15,6 +15,9 @@ return [
 
     'default' => env('FILESYSTEM_DISK', 'local'),
 
+    'image_disk' => env('IMAGE_STORAGE_DISK')
+        ?: (env('CPANEL_FTP_HOST') || env('CPANEL_IMAGES_URL') ? 'cpanel_images' : 'public'),
+
     /*
     |--------------------------------------------------------------------------
     | Filesystem Disks
@@ -38,7 +41,7 @@ return [
 
         'public' => [
             'driver' => 'local',
-            'root' => storage_path('app/public'),
+            'root' => env('PUBLIC_STORAGE_PATH') ?: storage_path('app/public'),
             'url' => env('APP_URL').'/storage',
             'visibility' => 'public',
             'throw' => false,
@@ -52,8 +55,24 @@ return [
             'bucket' => env('AWS_BUCKET'),
             'url' => env('AWS_URL'),
             'endpoint' => env('AWS_ENDPOINT'),
-            'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
-            'throw' => false,
+            'use_path_style_endpoint' => filter_var(env('AWS_USE_PATH_STYLE_ENDPOINT', false), FILTER_VALIDATE_BOOLEAN),
+            'visibility' => 'public',
+            'throw' => true,
+        ],
+
+        'cpanel_images' => [
+            'driver' => 'ftp',
+            'host' => env('CPANEL_FTP_HOST'),
+            'username' => env('CPANEL_FTP_USERNAME'),
+            'password' => env('CPANEL_FTP_PASSWORD'),
+            'root' => env('CPANEL_FTP_ROOT', '/'),
+            'port' => (int) env('CPANEL_FTP_PORT', 21),
+            'ssl' => filter_var(env('CPANEL_FTP_SSL', false), FILTER_VALIDATE_BOOLEAN),
+            'passive' => filter_var(env('CPANEL_FTP_PASSIVE', true), FILTER_VALIDATE_BOOLEAN),
+            'ignorePassiveAddress' => filter_var(env('CPANEL_FTP_IGNORE_PASSIVE_ADDRESS', false), FILTER_VALIDATE_BOOLEAN),
+            'timeout' => (int) env('CPANEL_FTP_TIMEOUT', 90),
+            'url' => env('CPANEL_IMAGES_URL'),
+            'throw' => true,
         ],
 
     ],
@@ -70,7 +89,7 @@ return [
     */
 
     'links' => [
-        public_path('storage') => storage_path('app/public'),
+        public_path('storage') => env('PUBLIC_STORAGE_PATH') ?: storage_path('app/public'),
     ],
 
 ];

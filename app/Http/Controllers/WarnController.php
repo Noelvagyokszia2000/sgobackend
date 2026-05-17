@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Warn;
 use App\Models\User;
+use Carbon\Carbon;
 
 class WarnController extends Controller
 {
@@ -19,7 +20,8 @@ class WarnController extends Controller
         Warn::create([
             'user_id' => $request->user_id,
             'issued_by' => $request->issued_by,
-            'reason' => $request->reason
+            'reason' => $request->reason,
+            'created_at' => Carbon::now(config('app.timezone'))->format('Y-m-d H:i:s')
         ]);
 
         $user = User::find($request->user_id);

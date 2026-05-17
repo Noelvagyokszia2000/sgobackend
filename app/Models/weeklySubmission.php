@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class WeeklySubmission extends Model
 {
-    protected $table = 'weeklySubmissions';
+    protected $table = 'weekly_submissions';
     public $timestamps = false;
 
     protected $fillable = [

@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Rankup;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Carbon\Carbon;
 
 class RankupController extends Controller
 {
@@ -52,9 +51,6 @@ class RankupController extends Controller
             'issued_at_game' => $request->issued_at_game,
             'completed' => false
         ]);
-
-        $user->lastRankup = Carbon::parse($request->issued_at_site);
-        $user->save();
 
         return response()->json([
             'message' => 'Rankup létrehozva',
