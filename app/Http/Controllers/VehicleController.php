@@ -5,18 +5,15 @@ namespace App\Http\Controllers;
 use App\Models\Vehicle;
 use App\Models\VehicleKey;
 use App\Models\VehicleWarning;
-use App\Services\ImageStorageService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class VehicleController extends Controller
 {
-    public function __construct(private ImageStorageService $images)
-    {
-    }
-
     public function index()
     {
         $this->removeExpiredWarnings();
@@ -45,7 +42,7 @@ class VehicleController extends Controller
         ]);
 
         $imageUrl = $request->hasFile('imageFile')
-            ? $this->images->storeUploadedFile($request, 'imageFile', 'vehicle-images', 'vehicle')
+            ? $this->storeVehicleImage($request)
             : $this->normalizeImageUrl($validated['image'] ?? null);
 
         $vehicle = Vehicle::create([
@@ -326,7 +323,7 @@ class VehicleController extends Controller
     {
         $vehicle = Vehicle::findOrFail($id);
 
-        $this->images->delete($vehicle->image);
+        $this->deletePublicStorageFile($vehicle->image);
 
         $vehicle->delete();
 
@@ -370,7 +367,7 @@ class VehicleController extends Controller
             ]);
         }
 
-        return $this->images->normalizeUrl($url);
+        return $this->normalizeStoredImageUrl($url);
     }
 
     private function resolveImgurPageImage(string $url): ?string
@@ -432,5 +429,108 @@ class VehicleController extends Controller
     {
         $vehicle->warns = min(5, $vehicle->warnings()->count());
         $vehicle->save();
+    }
+
+    private function storeVehicleImage(Request $request): string
+    {
+        $disk = $this->imageStorageDisk();
+        $path = $this->putVehicleImageFile($disk, $request);
+
+        if (!$path) {
+            throw ValidationException::withMessages([
+                'imageFile' => 'A jármű képének feltöltése nem sikerült.'
+            ]);
+        }
+
+        return $this->imageStorageUrl($path);
+    }
+
+    private function deletePublicStorageFile(?string $url): void
+    {
+        if (!$url) {
+            return;
+        }
+
+        $disk = $this->imageStorageDisk();
+        $diskUrl = config("filesystems.disks.{$disk}.url");
+        $path = parse_url($url, PHP_URL_PATH);
+
+        if (!$path) {
+            return;
+        }
+
+        $urlHost = parse_url($url, PHP_URL_HOST);
+        $diskHost = $diskUrl ? parse_url($diskUrl, PHP_URL_HOST) : null;
+
+        if ($diskHost && $urlHost && $urlHost !== $diskHost) {
+            return;
+        }
+
+        $diskPathPrefix = $diskUrl ? (parse_url($diskUrl, PHP_URL_PATH) ?: '') : '';
+
+        if ($diskPathPrefix && str_starts_with($path, $diskPathPrefix)) {
+            $path = substr($path, strlen($diskPathPrefix));
+        } elseif (str_starts_with($path, '/storage/')) {
+            $path = substr($path, strlen('/storage/'));
+        }
+
+        try {
+            Storage::disk($disk)->delete(ltrim($path, '/'));
+        } catch (\Throwable $exception) {
+            Log::warning('Vehicle image delete failed', [
+                'disk' => $disk,
+                'url' => $url,
+                'path' => ltrim($path, '/'),
+                'error' => $exception->getMessage(),
+            ]);
+        }
+    }
+
+    private function normalizeStoredImageUrl(?string $url): ?string
+    {
+        if (!$url) {
+            return null;
+        }
+
+        $url = trim($url);
+        $diskUrl = config('filesystems.disks.' . $this->imageStorageDisk() . '.url');
+
+        if (!$diskUrl) {
+            return $url;
+        }
+
+        if (!preg_match('#^https?://#i', $url)) {
+            return rtrim($diskUrl, '/') . '/' . ltrim(preg_replace('#^storage/#', '', $url), '/');
+        }
+
+        $path = parse_url($url, PHP_URL_PATH);
+
+        if (!$path || !str_starts_with($path, '/storage/')) {
+            return $url;
+        }
+
+        return rtrim($diskUrl, '/') . '/' . ltrim(substr($path, strlen('/storage/')), '/');
+    }
+
+    private function imageStorageUrl(string $path): string
+    {
+        $disk = $this->imageStorageDisk();
+        $diskUrl = config("filesystems.disks.{$disk}.url");
+
+        if ($diskUrl) {
+            return rtrim($diskUrl, '/') . '/' . ltrim($path, '/');
+        }
+
+        return Storage::disk($disk)->url($path);
+    }
+
+    private function imageStorageDisk(): string
+    {
+        return config('filesystems.image_disk', 'public');
+    }
+
+    private function putVehicleImageFile(string $disk, Request $request): string|false
+    {
+        return Storage::disk($disk)->putFile('vehicle-images', $request->file('imageFile'));
     }
 }

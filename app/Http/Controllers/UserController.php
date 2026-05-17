@@ -3,17 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
-use App\Services\ImageStorageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 class UserController extends Controller
 {
-    public function __construct(private ImageStorageService $images)
-    {
-    }
-
     public function index($id)
     {
         $user = User::with('rank:id,name,available')->find($id);
@@ -65,7 +63,7 @@ class UserController extends Controller
             ], 404);
         }
 
-        $this->images->delete($user->profileImage);
+        $this->deleteImageStorageFile($user->profileImage);
 
         $user->delete();
 
@@ -207,12 +205,12 @@ class UserController extends Controller
         }
 
         $previousProfileImage = $user->profileImage;
-        $user->profileImage = $this->images->storeUploadedFile($request, 'profileImage', 'profile-images', 'profile');
+        $user->profileImage = $this->storeImageFile($request, 'profileImage', 'profile-images');
 
         $user->save();
 
         app()->terminating(function () use ($previousProfileImage) {
-            $this->images->delete($previousProfileImage);
+            $this->deleteImageStorageFile($previousProfileImage);
         });
 
         return response()->json([
@@ -341,8 +339,111 @@ class UserController extends Controller
 
     private function prepareUserResponse(User $user): User
     {
-        $user->profileImage = $this->images->normalizeUrl($user->profileImage);
+        $user->profileImage = $this->normalizeImageUrl($user->profileImage);
 
         return $user;
+    }
+
+    private function normalizeImageUrl(?string $url): ?string
+    {
+        if (!$url) {
+            return null;
+        }
+
+        $url = trim($url);
+        $diskUrl = config('filesystems.disks.' . $this->imageStorageDisk() . '.url');
+
+        if (!$diskUrl) {
+            return $url;
+        }
+
+        if (!preg_match('#^https?://#i', $url)) {
+            return rtrim($diskUrl, '/') . '/' . ltrim(preg_replace('#^storage/#', '', $url), '/');
+        }
+
+        $path = parse_url($url, PHP_URL_PATH);
+
+        if (!$path || !str_starts_with($path, '/storage/')) {
+            return $url;
+        }
+
+        return rtrim($diskUrl, '/') . '/' . ltrim(substr($path, strlen('/storage/')), '/');
+    }
+
+    private function deleteImageStorageFile(?string $url): void
+    {
+        if (!$url) {
+            return;
+        }
+
+        $disk = $this->imageStorageDisk();
+        $diskUrl = config("filesystems.disks.{$disk}.url");
+        $path = parse_url($url, PHP_URL_PATH);
+
+        if (!$path) {
+            return;
+        }
+
+        $urlHost = parse_url($url, PHP_URL_HOST);
+        $diskHost = $diskUrl ? parse_url($diskUrl, PHP_URL_HOST) : null;
+
+        if ($diskHost && $urlHost && $urlHost !== $diskHost) {
+            return;
+        }
+
+        $diskPathPrefix = $diskUrl ? (parse_url($diskUrl, PHP_URL_PATH) ?: '') : '';
+
+        if ($diskPathPrefix && str_starts_with($path, $diskPathPrefix)) {
+            $path = substr($path, strlen($diskPathPrefix));
+        } elseif (str_starts_with($path, '/storage/')) {
+            $path = substr($path, strlen('/storage/'));
+        }
+
+        try {
+            Storage::disk($disk)->delete(ltrim($path, '/'));
+        } catch (\Throwable $exception) {
+            Log::warning('Profile image delete failed', [
+                'disk' => $disk,
+                'url' => $url,
+                'path' => ltrim($path, '/'),
+                'error' => $exception->getMessage(),
+            ]);
+        }
+    }
+
+    private function storeImageFile(Request $request, string $field, string $directory): string
+    {
+        $disk = $this->imageStorageDisk();
+        $path = $this->putImageFile($disk, $request, $field, $directory);
+
+        if (!$path) {
+            throw ValidationException::withMessages([
+                $field => 'A kép feltöltése nem sikerült.'
+            ]);
+        }
+
+        return $this->imageStorageUrl($path);
+    }
+
+    private function imageStorageUrl(string $path): string
+    {
+        $disk = $this->imageStorageDisk();
+        $diskUrl = config("filesystems.disks.{$disk}.url");
+
+        if ($diskUrl) {
+            return rtrim($diskUrl, '/') . '/' . ltrim($path, '/');
+        }
+
+        return Storage::disk($disk)->url($path);
+    }
+
+    private function imageStorageDisk(): string
+    {
+        return config('filesystems.image_disk', 'public');
+    }
+
+    private function putImageFile(string $disk, Request $request, string $field, string $directory): string|false
+    {
+        return Storage::disk($disk)->putFile($directory, $request->file($field));
     }
 }
