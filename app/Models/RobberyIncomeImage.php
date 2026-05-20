@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class RobberyIncomeImage extends Model
 {
     protected $fillable = [
+        'robbery_id',
         'submitted_by',
         'submitted_at',
         'amount',
@@ -23,5 +24,10 @@ class RobberyIncomeImage extends Model
     public function submitter()
     {
         return $this->belongsTo(User::class, 'submitted_by');
+    }
+
+    public function robbery()
+    {
+        return $this->belongsTo(Robbery::class);
     }
 }
