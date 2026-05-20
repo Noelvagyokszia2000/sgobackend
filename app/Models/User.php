@@ -88,4 +88,19 @@ class User extends Authenticatable
     {
         return $this->hasMany(RefundRequest::class, 'handled_by');
     }
+
+    public function news()
+    {
+        return $this->hasMany(News::class, 'created_by');
+    }
+
+    public function robberies()
+    {
+        return $this->hasMany(Robbery::class, 'created_by');
+    }
+
+    public function robberyIncomeImages()
+    {
+        return $this->hasMany(RobberyIncomeImage::class, 'submitted_by');
+    }
 }

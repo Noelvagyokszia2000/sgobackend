@@ -10,6 +10,7 @@ use App\Http\Controllers\RankupController;
 use App\Http\Controllers\VehicleController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\RefundRequestController;
+use App\Http\Controllers\RobberyController;
 
 Route::get('/user/{id}', [UserController::class, 'index']);
 Route::post('/add-user', [UserController::class, 'addUser']);
@@ -77,3 +78,8 @@ Route::delete('/vehicles/{id}', [VehicleController::class, 'destroy']);
 
 Route::get('/expenses', [ExpenseController::class, 'index']);
 Route::post('/expenses', [ExpenseController::class, 'store']);
+
+
+Route::get('/robberies', [RobberyController::class, 'index']);
+Route::post('/robberies', [RobberyController::class, 'store']);
+Route::patch('/robberies/{id}/finished', [RobberyController::class, 'updateFinished']);
