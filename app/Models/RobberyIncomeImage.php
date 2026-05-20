@@ -11,12 +11,18 @@ class RobberyIncomeImage extends Model
         'submitted_by',
         'submitted_at',
         'amount',
+        'drilled_count',
+        'fee_amount',
+        'net_amount',
         'image',
     ];
 
     protected $casts = [
         'submitted_at' => 'datetime',
         'amount' => 'integer',
+        'drilled_count' => 'integer',
+        'fee_amount' => 'integer',
+        'net_amount' => 'integer',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

@@ -6,6 +6,7 @@ use App\Models\Robbery;
 use App\Models\RobberyIncomeImage;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -28,10 +29,14 @@ class RobberyController extends Controller
     {
         $validated = $request->validate([
             'created_by' => 'required|exists:users,id',
+            'name' => 'required|string|max:120',
+            'type' => 'required|string|in:ATM,BANK',
         ]);
 
         $robbery = Robbery::create([
             'created_by' => $validated['created_by'],
+            'name' => trim($validated['name']),
+            'type' => $validated['type'],
             'participants_count' => 0,
             'applicants_count' => 0,
             'finished' => false,
@@ -43,8 +48,12 @@ class RobberyController extends Controller
         ], 201);
     }
 
-    public function join($id)
+    public function join(Request $request, $id)
     {
+        $validated = $request->validate([
+            'user_id' => 'required|exists:users,id',
+        ]);
+
         $robbery = Robbery::find($id);
 
         if (!$robbery) {
@@ -53,7 +62,30 @@ class RobberyController extends Controller
             ], 404);
         }
 
-        $robbery->increment('participants_count');
+        if ($robbery->finished) {
+            return response()->json([
+                'message' => 'Ez a rablás már le van zárva.',
+            ], 422);
+        }
+
+        $alreadyJoined = DB::table('robbery_participants')
+            ->where('robbery_id', $robbery->id)
+            ->where('user_id', $validated['user_id'])
+            ->exists();
+
+        if ($alreadyJoined) {
+            return response()->json([
+                'message' => 'Erre a rablásra már jelentkeztél.',
+            ], 422);
+        }
+
+        DB::table('robbery_participants')->insert([
+            'robbery_id' => $robbery->id,
+            'user_id' => $validated['user_id'],
+            'created_at' => Carbon::now(config('app.timezone'))->format('Y-m-d H:i:s'),
+        ]);
+
+        $this->syncCounts($robbery);
 
         return response()->json([
             'message' => 'Jelentkezés sikeresen mentve.',
@@ -61,8 +93,12 @@ class RobberyController extends Controller
         ]);
     }
 
-    public function requestPayout($id)
+    public function requestPayout(Request $request, $id)
     {
+        $validated = $request->validate([
+            'user_id' => 'required|exists:users,id',
+        ]);
+
         $robbery = Robbery::find($id);
 
         if (!$robbery) {
@@ -71,7 +107,30 @@ class RobberyController extends Controller
             ], 404);
         }
 
-        $robbery->increment('applicants_count');
+        if ($robbery->finished) {
+            return response()->json([
+                'message' => 'Ez a rablás már le van zárva.',
+            ], 422);
+        }
+
+        $alreadyRequested = DB::table('robbery_payout_requests')
+            ->where('robbery_id', $robbery->id)
+            ->where('user_id', $validated['user_id'])
+            ->exists();
+
+        if ($alreadyRequested) {
+            return response()->json([
+                'message' => 'Erre a rablásra már kértél pénzosztást.',
+            ], 422);
+        }
+
+        DB::table('robbery_payout_requests')->insert([
+            'robbery_id' => $robbery->id,
+            'user_id' => $validated['user_id'],
+            'created_at' => Carbon::now(config('app.timezone'))->format('Y-m-d H:i:s'),
+        ]);
+
+        $this->syncCounts($robbery);
 
         return response()->json([
             'message' => 'Pénzosztásra jelentkezés sikeresen mentve.',
@@ -92,19 +151,29 @@ class RobberyController extends Controller
         $validated = $request->validate([
             'submitted_by' => 'required|exists:users,id',
             'amount' => 'required|integer|min:1',
+            'drilled_count' => 'required|integer|min:0|max:999',
             'imageFile' => 'required|image|mimes:jpg,jpeg,png,webp|max:4096',
         ]);
+
+        $feeAmount = (int) $validated['drilled_count'] * 50000;
+        $netAmount = max((int) $validated['amount'] - $feeAmount, 0);
 
         RobberyIncomeImage::create([
             'robbery_id' => $robbery->id,
             'submitted_by' => $validated['submitted_by'],
             'submitted_at' => Carbon::now(config('app.timezone'))->format('Y-m-d H:i:s'),
             'amount' => $validated['amount'],
+            'drilled_count' => $validated['drilled_count'],
+            'fee_amount' => $feeAmount,
+            'net_amount' => $netAmount,
             'image' => $this->storeImageFile($request, 'imageFile', 'robbery-income-images'),
         ]);
 
         return response()->json([
             'message' => 'Pénz sikeresen hozzáadva.',
+            'deposit_message' => 'Tölts fel az fk számlára ennyit: ' . number_format($feeAmount, 0, ',', ' ') . ' $',
+            'deposit_amount' => $feeAmount,
+            'net_amount' => $netAmount,
             'robbery' => $this->formatRobbery($this->loadRobbery($robbery->id)),
         ], 201);
     }
@@ -149,14 +218,31 @@ class RobberyController extends Controller
             ->findOrFail($id);
     }
 
+    private function syncCounts(Robbery $robbery): void
+    {
+        $robbery->participants_count = DB::table('robbery_participants')
+            ->where('robbery_id', $robbery->id)
+            ->count();
+
+        $robbery->applicants_count = DB::table('robbery_payout_requests')
+            ->where('robbery_id', $robbery->id)
+            ->count();
+
+        $robbery->save();
+    }
+
     private function formatRobbery(Robbery $robbery): array
     {
-        $totalIncome = (int) $robbery->incomeImages->sum('amount');
+        $totalIncome = (int) $robbery->incomeImages->sum(function ($image) {
+            return $image->net_amount > 0 ? $image->net_amount : $image->amount;
+        });
         $applicantsCount = (int) $robbery->applicants_count;
 
         return [
             'id' => $robbery->id,
             'created_by' => $robbery->created_by,
+            'name' => $robbery->name,
+            'type' => $robbery->type,
             'participants_count' => (int) $robbery->participants_count,
             'applicants_count' => $applicantsCount,
             'finished' => (bool) $robbery->finished,

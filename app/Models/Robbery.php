@@ -10,6 +10,8 @@ class Robbery extends Model
 
     protected $fillable = [
         'created_by',
+        'name',
+        'type',
         'participants_count',
         'applicants_count',
         'finished',
