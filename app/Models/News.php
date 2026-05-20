@@ -13,10 +13,12 @@ class News extends Model
         'text',
         'image',
         'published_at',
+        'deleted_at',
     ];
 
     protected $casts = [
         'published_at' => 'datetime',
+        'deleted_at' => 'datetime',
     ];
 
     public function author()
