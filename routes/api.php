@@ -93,3 +93,4 @@ Route::post('/robberies/{id}/join', [RobberyController::class, 'join']);
 Route::post('/robberies/{id}/payout-request', [RobberyController::class, 'requestPayout']);
 Route::post('/robberies/{id}/income-images', [RobberyController::class, 'storeIncome']);
 Route::patch('/robberies/{id}/finished', [RobberyController::class, 'updateFinished']);
+Route::delete('/robberies/{id}', [RobberyController::class, 'destroy']);

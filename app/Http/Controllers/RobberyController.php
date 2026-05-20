@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Robbery;
 use App\Models\RobberyIncomeImage;
+use App\Services\DiscordNotifier;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -41,6 +42,10 @@ class RobberyController extends Controller
             'applicants_count' => 0,
             'finished' => false,
         ]);
+
+        app(DiscordNotifier::class)->sendRobbery(
+            $robbery->load('author:id,username,IgName,profileImage')
+        );
 
         return response()->json([
             'message' => 'Rablás sikeresen létrehozva.',
@@ -113,6 +118,17 @@ class RobberyController extends Controller
             ], 422);
         }
 
+        $hasJoined = DB::table('robbery_participants')
+            ->where('robbery_id', $robbery->id)
+            ->where('user_id', $validated['user_id'])
+            ->exists();
+
+        if (!$hasJoined) {
+            return response()->json([
+                'message' => 'Pénzosztásra csak akkor jelentkezhetsz, ha előtte jelentkeztél a rablásra.',
+            ], 422);
+        }
+
         $alreadyRequested = DB::table('robbery_payout_requests')
             ->where('robbery_id', $robbery->id)
             ->where('user_id', $validated['user_id'])
@@ -155,7 +171,10 @@ class RobberyController extends Controller
             'imageFile' => 'required|image|mimes:jpg,jpeg,png,webp|max:4096',
         ]);
 
-        $feeAmount = (int) $validated['drilled_count'] * 50000;
+        $feeUnits = $robbery->type === 'BANK'
+            ? intdiv((int) $validated['drilled_count'], 3)
+            : (int) $validated['drilled_count'];
+        $feeAmount = $feeUnits * 50000;
         $netAmount = max((int) $validated['amount'] - $feeAmount, 0);
 
         RobberyIncomeImage::create([
@@ -171,8 +190,6 @@ class RobberyController extends Controller
 
         return response()->json([
             'message' => 'Pénz sikeresen hozzáadva.',
-            'deposit_message' => 'Tölts fel az fk számlára ennyit: ' . number_format($feeAmount, 0, ',', ' ') . ' $',
-            'deposit_amount' => $feeAmount,
             'net_amount' => $netAmount,
             'robbery' => $this->formatRobbery($this->loadRobbery($robbery->id)),
         ], 201);
@@ -208,6 +225,41 @@ class RobberyController extends Controller
         ]);
     }
 
+    public function destroy(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'user_id' => 'required|exists:users,id',
+        ]);
+
+        $robbery = Robbery::find($id);
+
+        if (!$robbery) {
+            return response()->json([
+                'message' => 'Rablás nem található.',
+            ], 404);
+        }
+
+        $actor = DB::table('users')
+            ->select('id', 'isAdmin')
+            ->where('id', $validated['user_id'])
+            ->first();
+
+        $isCreator = (int) $robbery->created_by === (int) $validated['user_id'];
+        $isAdmin = (bool) ($actor->isAdmin ?? false);
+
+        if (!$isCreator && !$isAdmin) {
+            return response()->json([
+                'message' => 'Ezt csak admin vagy a rablás létrehozója törölheti.',
+            ], 403);
+        }
+
+        $robbery->delete();
+
+        return response()->json([
+            'message' => 'Rablás törölve.',
+        ]);
+    }
+
     private function loadRobbery(int $id): Robbery
     {
         return Robbery::query()
@@ -236,7 +288,6 @@ class RobberyController extends Controller
         $totalIncome = (int) $robbery->incomeImages->sum(function ($image) {
             return $image->net_amount > 0 ? $image->net_amount : $image->amount;
         });
-        $applicantsCount = (int) $robbery->applicants_count;
 
         return [
             'id' => $robbery->id,
@@ -244,13 +295,30 @@ class RobberyController extends Controller
             'name' => $robbery->name,
             'type' => $robbery->type,
             'participants_count' => (int) $robbery->participants_count,
-            'applicants_count' => $applicantsCount,
+            'applicants_count' => (int) $robbery->applicants_count,
             'finished' => (bool) $robbery->finished,
             'author' => $robbery->author,
             'income_images' => $robbery->incomeImages,
+            'participants' => $this->getApplicationUsers('robbery_participants', $robbery->id),
+            'payout_applicants' => $this->getApplicationUsers('robbery_payout_requests', $robbery->id),
             'total_income' => $totalIncome,
-            'payout_share' => $applicantsCount > 0 ? intdiv($totalIncome, $applicantsCount) : 0,
+            'payout_share' => 0,
         ];
+    }
+
+    private function getApplicationUsers(string $table, int $robberyId)
+    {
+        return DB::table($table)
+            ->join('users', "{$table}.user_id", '=', 'users.id')
+            ->where("{$table}.robbery_id", $robberyId)
+            ->orderBy("{$table}.created_at")
+            ->get([
+                'users.id',
+                'users.username',
+                'users.IgName',
+                'users.profileImage',
+                "{$table}.created_at as joined_at",
+            ]);
     }
 
     private function storeImageFile(Request $request, string $field, string $directory): string

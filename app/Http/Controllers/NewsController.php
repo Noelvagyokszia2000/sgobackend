@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\News;
+use App\Services\DiscordNotifier;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -49,9 +50,12 @@ class NewsController extends Controller
             'published_at' => Carbon::now(config('app.timezone'))->format('Y-m-d H:i:s'),
         ]);
 
+        $news->load('author:id,username,IgName,profileImage');
+        app(DiscordNotifier::class)->sendNews($news);
+
         return response()->json([
             'message' => 'Hír sikeresen kiírva.',
-            'news' => $news->load('author:id,username,IgName,profileImage'),
+            'news' => $news,
         ], 201);
     }
 
