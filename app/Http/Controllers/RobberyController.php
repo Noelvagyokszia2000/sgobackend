@@ -13,13 +13,16 @@ use Illuminate\Validation\ValidationException;
 
 class RobberyController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
+        $includeFinished = $request->boolean('include_finished');
+
         return Robbery::query()
             ->with([
                 'author:id,username,IgName,profileImage',
                 'incomeImages.submitter:id,username,IgName,profileImage',
             ])
+            ->when(!$includeFinished, fn ($query) => $query->where('finished', false))
             ->orderBy('id', 'desc')
             ->get()
             ->map(fn (Robbery $robbery) => $this->formatRobbery($robbery));
@@ -30,7 +33,7 @@ class RobberyController extends Controller
         $validated = $request->validate([
             'created_by' => 'required|exists:users,id',
             'name' => 'required|string|max:120',
-            'type' => 'required|string|in:ATM,BANK',
+            'type' => 'required|string|in:ATM,BANK,OTHER',
         ]);
 
         $robbery = Robbery::create([
@@ -113,6 +116,12 @@ class RobberyController extends Controller
             ], 422);
         }
 
+        if ($this->isActivityOnlyRobbery($robbery)) {
+            return response()->json([
+                'message' => 'Ehhez a rablás típushoz nincs pénzosztás.',
+            ], 422);
+        }
+
         $hasJoined = DB::table('robbery_participants')
             ->where('robbery_id', $robbery->id)
             ->where('user_id', $validated['user_id'])
@@ -157,6 +166,18 @@ class RobberyController extends Controller
             return response()->json([
                 'message' => 'Rablás nem található.',
             ], 404);
+        }
+
+        if ($robbery->finished) {
+            return response()->json([
+                'message' => 'Ez a rablás már le van zárva.',
+            ], 422);
+        }
+
+        if ($this->isActivityOnlyRobbery($robbery)) {
+            return response()->json([
+                'message' => 'Ehhez a rablás típushoz nem lehet pénzt hozzáadni.',
+            ], 422);
         }
 
         $validated = $request->validate([
@@ -244,14 +265,16 @@ class RobberyController extends Controller
 
         if (!$isCreator && !$isAdmin) {
             return response()->json([
-                'message' => 'Ezt csak admin vagy a rablás létrehozója törölheti.',
+                'message' => 'Ezt csak admin vagy a rablás létrehozója rejtheti el.',
             ], 403);
         }
 
-        $robbery->delete();
+        $robbery->finished = true;
+        $robbery->save();
 
         return response()->json([
-            'message' => 'Rablás törölve.',
+            'robbery' => $this->formatRobbery($this->loadRobbery($robbery->id)),
+            'message' => 'Rablás elrejtve az aktív listából.',
         ]);
     }
 
@@ -280,10 +303,19 @@ class RobberyController extends Controller
 
     private function formatRobbery(Robbery $robbery): array
     {
-        $totalIncome = (int) $robbery->incomeImages->sum(function ($image) {
+        $activityOnly = $this->isActivityOnlyRobbery($robbery);
+        $incomeImages = $activityOnly
+            ? collect()
+            : $robbery->incomeImages;
+        $totalIncome = (int) $incomeImages->sum(function ($image) {
             return (int) $image->net_amount;
         });
-        $payoutApplicantCount = (int) $robbery->applicants_count;
+        $payoutApplicantCount = $activityOnly
+            ? 0
+            : (int) $robbery->applicants_count;
+        $payoutApplicants = $activityOnly
+            ? collect()
+            : $this->getApplicationUsers('robbery_payout_requests', $robbery->id);
 
         return [
             'id' => $robbery->id,
@@ -291,17 +323,22 @@ class RobberyController extends Controller
             'name' => $robbery->name,
             'type' => $robbery->type,
             'participants_count' => (int) $robbery->participants_count,
-            'applicants_count' => (int) $robbery->applicants_count,
+            'applicants_count' => $payoutApplicantCount,
             'finished' => (bool) $robbery->finished,
             'author' => $robbery->author,
-            'income_images' => $robbery->incomeImages,
+            'income_images' => $incomeImages->values(),
             'participants' => $this->getApplicationUsers('robbery_participants', $robbery->id),
-            'payout_applicants' => $this->getApplicationUsers('robbery_payout_requests', $robbery->id),
+            'payout_applicants' => $payoutApplicants,
             'total_income' => $totalIncome,
             'payout_share' => $payoutApplicantCount > 0
                 ? intdiv($totalIncome, $payoutApplicantCount)
                 : 0,
         ];
+    }
+
+    private function isActivityOnlyRobbery(Robbery $robbery): bool
+    {
+        return strtoupper((string) $robbery->type) === 'OTHER';
     }
 
     private function getApplicationUsers(string $table, int $robberyId)

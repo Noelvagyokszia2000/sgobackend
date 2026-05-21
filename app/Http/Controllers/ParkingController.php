@@ -37,16 +37,6 @@ class ParkingController extends Controller
             ], 400);
         }
 
-        $alreadyHasParking = Parking::where('user_id', $request->user_id)
-            ->where('occupied', true)
-            ->exists();
-
-        if ($alreadyHasParking) {
-            return response()->json([
-                'message' => 'A felhasználónak már van parkolóhelye'
-            ], 400);
-        }
-
         $parking->user_id = $request->user_id;
         $parking->occupied = true;
         $parking->save();

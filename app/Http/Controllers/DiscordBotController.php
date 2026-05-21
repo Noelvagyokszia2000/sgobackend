@@ -34,6 +34,7 @@ class DiscordBotController extends Controller
                     ?: 'Ismeretlen',
                 'participants_count' => (int) $robbery->participants_count,
                 'applicants_count' => (int) $robbery->applicants_count,
+                'activity_only' => $this->isActivityOnlyRobbery($robbery),
             ])
             ->values();
 
@@ -161,6 +162,12 @@ class DiscordBotController extends Controller
             ], 422);
         }
 
+        if ($validated['action'] === 'payout' && $this->isActivityOnlyRobbery($robbery)) {
+            return response()->json([
+                'message' => 'Ehhez a rablás típushoz nincs pénzosztás.',
+            ], 422);
+        }
+
         $user = User::query()
             ->where('discord_id', $validated['discord_user_id'])
             ->first();
@@ -209,6 +216,81 @@ class DiscordBotController extends Controller
             'message' => $validated['action'] === 'payout'
                 ? 'Pénzosztásra jelentkezés rögzítve.'
                 : 'Rablásra jelentkezés rögzítve.',
+            'user' => [
+                'id' => $user->id,
+                'username' => $user->username,
+                'IgName' => $user->IgName,
+            ],
+        ]);
+    }
+
+    public function removeReaction(Request $request): JsonResponse
+    {
+        if ($response = $this->authorizeBot($request)) {
+            return $response;
+        }
+
+        $validated = $request->validate([
+            'discord_user_id' => 'required|string|max:32',
+            'discord_channel_id' => 'required|string|max:32',
+            'discord_message_id' => 'required|string|max:32',
+            'action' => 'required|string|in:join,payout',
+        ]);
+
+        $robbery = Robbery::query()
+            ->where('discord_message_id', $validated['discord_message_id'])
+            ->where('discord_channel_id', $validated['discord_channel_id'])
+            ->first();
+
+        if (!$robbery) {
+            return response()->json([
+                'message' => 'Discord ĂĽzenethez nem talĂˇlhatĂł rablĂˇs.',
+            ], 404);
+        }
+
+        if ($robbery->finished) {
+            return response()->json([
+                'message' => 'A rablas mar le van zarva, az elozmeny nem modosult.',
+            ]);
+        }
+
+        $user = User::query()
+            ->where('discord_id', $validated['discord_user_id'])
+            ->first();
+
+        if (!$user) {
+            return response()->json([
+                'message' => 'Nincs webes felhasznĂˇlĂł Ă¶sszekĂ¶tve ezzel a Discord fiĂłkkal.',
+            ], 404);
+        }
+
+        DB::transaction(function () use ($robbery, $user, $validated): void {
+            if ($validated['action'] === 'payout') {
+                DB::table('robbery_payout_requests')
+                    ->where('robbery_id', $robbery->id)
+                    ->where('user_id', $user->id)
+                    ->delete();
+            }
+
+            if ($validated['action'] === 'join') {
+                DB::table('robbery_payout_requests')
+                    ->where('robbery_id', $robbery->id)
+                    ->where('user_id', $user->id)
+                    ->delete();
+
+                DB::table('robbery_participants')
+                    ->where('robbery_id', $robbery->id)
+                    ->where('user_id', $user->id)
+                    ->delete();
+            }
+
+            $this->syncCounts($robbery);
+        });
+
+        return response()->json([
+            'message' => $validated['action'] === 'payout'
+                ? 'PĂ©nzosztĂˇsra jelentkezĂ©s tĂ¶rĂ¶lve.'
+                : 'RablĂˇsra jelentkezĂ©s tĂ¶rĂ¶lve.',
             'user' => [
                 'id' => $user->id,
                 'username' => $user->username,
@@ -279,6 +361,11 @@ class DiscordBotController extends Controller
             ->count();
 
         $robbery->save();
+    }
+
+    private function isActivityOnlyRobbery(Robbery $robbery): bool
+    {
+        return strtoupper((string) $robbery->type) === 'OTHER';
     }
 
     private function authorizeBot(Request $request): ?JsonResponse

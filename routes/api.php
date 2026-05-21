@@ -100,6 +100,7 @@ Route::delete('/robberies/{id}', [RobberyController::class, 'destroy']);
 Route::get('/bot/robberies/pending-announcements', [DiscordBotController::class, 'pendingRobberies']);
 Route::patch('/bot/robberies/{id}/discord-message', [DiscordBotController::class, 'recordDiscordMessage']);
 Route::post('/bot/robberies/discord-reaction', [DiscordBotController::class, 'handleReaction']);
+Route::post('/bot/robberies/discord-reaction/remove', [DiscordBotController::class, 'removeReaction']);
 Route::get('/bot/news/pending-announcements', [DiscordBotController::class, 'pendingNews']);
 Route::patch('/bot/news/{id}/discord-message', [DiscordBotController::class, 'recordNewsDiscordMessage']);
 Route::post('/bot/users/link', [DiscordBotController::class, 'linkUser']);
