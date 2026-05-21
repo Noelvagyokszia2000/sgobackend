@@ -126,7 +126,7 @@ class UserController extends Controller
     public function getAllUsers()
 {
     $users = User::with('rank:id,name,available')
-        ->select('id', 'username', 'IgName', 'warn', 'isAdmin', 'rank_id', 'lastRankup', 'createdAt', 'weeklyPay', 'weeklyPaymentRequired', 'profileImage', 'successfulCassettes')
+        ->select('id', 'username', 'discord_id', 'IgName', 'warn', 'isAdmin', 'rank_id', 'lastRankup', 'createdAt', 'weeklyPay', 'weeklyPaymentRequired', 'profileImage', 'successfulCassettes')
         ->orderByDesc('rank_id')
         ->orderBy('IgName', 'asc')
         ->get();

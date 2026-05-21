@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\News;
-use App\Services\DiscordNotifier;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -51,7 +50,6 @@ class NewsController extends Controller
         ]);
 
         $news->load('author:id,username,IgName,profileImage');
-        app(DiscordNotifier::class)->sendNews($news);
 
         return response()->json([
             'message' => 'Hír sikeresen kiírva.',

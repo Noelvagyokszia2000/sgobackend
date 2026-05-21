@@ -12,6 +12,7 @@ use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\RefundRequestController;
 use App\Http\Controllers\RobberyController;
 use App\Http\Controllers\NewsController;
+use App\Http\Controllers\DiscordBotController;
 
 Route::get('/user/{id}', [UserController::class, 'index']);
 Route::post('/add-user', [UserController::class, 'addUser']);
@@ -94,3 +95,11 @@ Route::post('/robberies/{id}/payout-request', [RobberyController::class, 'reques
 Route::post('/robberies/{id}/income-images', [RobberyController::class, 'storeIncome']);
 Route::patch('/robberies/{id}/finished', [RobberyController::class, 'updateFinished']);
 Route::delete('/robberies/{id}', [RobberyController::class, 'destroy']);
+
+
+Route::get('/bot/robberies/pending-announcements', [DiscordBotController::class, 'pendingRobberies']);
+Route::patch('/bot/robberies/{id}/discord-message', [DiscordBotController::class, 'recordDiscordMessage']);
+Route::post('/bot/robberies/discord-reaction', [DiscordBotController::class, 'handleReaction']);
+Route::get('/bot/news/pending-announcements', [DiscordBotController::class, 'pendingNews']);
+Route::patch('/bot/news/{id}/discord-message', [DiscordBotController::class, 'recordNewsDiscordMessage']);
+Route::post('/bot/users/link', [DiscordBotController::class, 'linkUser']);

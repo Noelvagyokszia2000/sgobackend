@@ -31,10 +31,8 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
-    'discord' => [
-        'webhook_url' => env('DISCORD_WEBHOOK_URL'),
-        'news_webhook_url' => env('DISCORD_NEWS_WEBHOOK_URL'),
-        'robbery_webhook_url' => env('DISCORD_ROBBERY_WEBHOOK_URL'),
+    'discord_bot' => [
+        'api_token' => env('DISCORD_BOT_API_TOKEN'),
     ],
 
 ];

@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Robbery;
 use App\Models\RobberyIncomeImage;
-use App\Services\DiscordNotifier;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -42,10 +41,6 @@ class RobberyController extends Controller
             'applicants_count' => 0,
             'finished' => false,
         ]);
-
-        app(DiscordNotifier::class)->sendRobbery(
-            $robbery->load('author:id,username,IgName,profileImage')
-        );
 
         return response()->json([
             'message' => 'Rablás sikeresen létrehozva.',
@@ -286,8 +281,9 @@ class RobberyController extends Controller
     private function formatRobbery(Robbery $robbery): array
     {
         $totalIncome = (int) $robbery->incomeImages->sum(function ($image) {
-            return $image->net_amount > 0 ? $image->net_amount : $image->amount;
+            return (int) $image->net_amount;
         });
+        $payoutApplicantCount = (int) $robbery->applicants_count;
 
         return [
             'id' => $robbery->id,
@@ -302,7 +298,9 @@ class RobberyController extends Controller
             'participants' => $this->getApplicationUsers('robbery_participants', $robbery->id),
             'payout_applicants' => $this->getApplicationUsers('robbery_payout_requests', $robbery->id),
             'total_income' => $totalIncome,
-            'payout_share' => 0,
+            'payout_share' => $payoutApplicantCount > 0
+                ? intdiv($totalIncome, $payoutApplicantCount)
+                : 0,
         ];
     }
 
