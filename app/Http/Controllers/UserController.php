@@ -284,6 +284,7 @@ class UserController extends Controller
         $isRequired = (bool) $validated['weeklyPaymentRequired'];
 
         $user->weeklyPaymentRequired = $isRequired;
+        $user->weeklyPayReminderSentFor = null;
 
         if ($isRequired) {
             $user->weeklyPay = now()->toDateString();

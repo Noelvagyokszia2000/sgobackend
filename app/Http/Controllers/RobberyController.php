@@ -34,15 +34,18 @@ class RobberyController extends Controller
             'created_by' => 'required|exists:users,id',
             'name' => 'required|string|max:120',
             'type' => 'required|string|in:ATM,BANK,OTHER',
+            'with_allies' => 'nullable|boolean',
         ]);
 
         $robbery = Robbery::create([
             'created_by' => $validated['created_by'],
             'name' => trim($validated['name']),
             'type' => $validated['type'],
+            'with_allies' => (bool) ($validated['with_allies'] ?? false),
             'participants_count' => 0,
             'applicants_count' => 0,
             'finished' => false,
+            'activity_excluded' => false,
         ]);
 
         return response()->json([
@@ -92,6 +95,68 @@ class RobberyController extends Controller
 
         return response()->json([
             'message' => 'Jelentkezés sikeresen mentve.',
+            'robbery' => $this->formatRobbery($this->loadRobbery($robbery->id)),
+        ]);
+    }
+
+    public function leave(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'user_id' => 'required|exists:users,id',
+        ]);
+
+        $robbery = Robbery::find($id);
+
+        if (!$robbery) {
+            return response()->json([
+                'message' => 'Rablás nem található.',
+            ], 404);
+        }
+
+        if ($robbery->finished) {
+            return response()->json([
+                'message' => 'Ez a rablás már le van zárva.',
+            ], 422);
+        }
+
+        $hasJoined = DB::table('robbery_participants')
+            ->where('robbery_id', $robbery->id)
+            ->where('user_id', $validated['user_id'])
+            ->exists();
+
+        if (!$hasJoined) {
+            return response()->json([
+                'message' => 'Erre a rablásra még nem jelentkeztél.',
+            ], 422);
+        }
+
+        $hadPayoutRequest = DB::table('robbery_payout_requests')
+            ->where('robbery_id', $robbery->id)
+            ->where('user_id', $validated['user_id'])
+            ->exists();
+
+        DB::transaction(function () use ($robbery, $validated, $hadPayoutRequest): void {
+            DB::table('robbery_payout_requests')
+                ->where('robbery_id', $robbery->id)
+                ->where('user_id', $validated['user_id'])
+                ->delete();
+
+            DB::table('robbery_participants')
+                ->where('robbery_id', $robbery->id)
+                ->where('user_id', $validated['user_id'])
+                ->delete();
+
+            $this->syncCounts($robbery);
+
+            if ($hadPayoutRequest) {
+                $this->queueDiscordReactionRemoval($robbery, (int) $validated['user_id'], 'payout');
+            }
+
+            $this->queueDiscordReactionRemoval($robbery, (int) $validated['user_id'], 'join');
+        });
+
+        return response()->json([
+            'message' => 'Jelentkezés visszavonva.',
             'robbery' => $this->formatRobbery($this->loadRobbery($robbery->id)),
         ]);
     }
@@ -154,6 +219,59 @@ class RobberyController extends Controller
 
         return response()->json([
             'message' => 'Pénzosztásra jelentkezés sikeresen mentve.',
+            'robbery' => $this->formatRobbery($this->loadRobbery($robbery->id)),
+        ]);
+    }
+
+    public function cancelPayout(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'user_id' => 'required|exists:users,id',
+        ]);
+
+        $robbery = Robbery::find($id);
+
+        if (!$robbery) {
+            return response()->json([
+                'message' => 'Rablás nem található.',
+            ], 404);
+        }
+
+        if ($robbery->finished) {
+            return response()->json([
+                'message' => 'Ez a rablás már le van zárva.',
+            ], 422);
+        }
+
+        if ($this->isActivityOnlyRobbery($robbery)) {
+            return response()->json([
+                'message' => 'Ehhez a rablás típushoz nincs pénzosztás.',
+            ], 422);
+        }
+
+        $hasRequestedPayout = DB::table('robbery_payout_requests')
+            ->where('robbery_id', $robbery->id)
+            ->where('user_id', $validated['user_id'])
+            ->exists();
+
+        if (!$hasRequestedPayout) {
+            return response()->json([
+                'message' => 'Erre a rablásra még nem kértél pénzosztást.',
+            ], 422);
+        }
+
+        DB::transaction(function () use ($robbery, $validated): void {
+            DB::table('robbery_payout_requests')
+                ->where('robbery_id', $robbery->id)
+                ->where('user_id', $validated['user_id'])
+                ->delete();
+
+            $this->syncCounts($robbery);
+            $this->queueDiscordReactionRemoval($robbery, (int) $validated['user_id'], 'payout');
+        });
+
+        return response()->json([
+            'message' => 'Pénzosztásra jelentkezés visszavonva.',
             'robbery' => $this->formatRobbery($this->loadRobbery($robbery->id)),
         ]);
     }
@@ -226,13 +344,22 @@ class RobberyController extends Controller
             ], 404);
         }
 
-        if ((int) $robbery->created_by !== (int) $validated['user_id']) {
+        $actor = DB::table('users')
+            ->select('id', 'isAdmin')
+            ->where('id', $validated['user_id'])
+            ->first();
+
+        $isCreator = (int) $robbery->created_by === (int) $validated['user_id'];
+        $isAdmin = (bool) ($actor->isAdmin ?? false);
+
+        if (!$isCreator && !$isAdmin) {
             return response()->json([
-                'message' => 'Ezt csak az tudja módosítani, aki létrehozta a rablást.',
+                'message' => 'Ezt csak admin vagy a rablás létrehozója módosíthatja.',
             ], 403);
         }
 
         $robbery->finished = (bool) $validated['finished'];
+        $robbery->activity_excluded = false;
         $robbery->save();
 
         return response()->json([
@@ -270,6 +397,7 @@ class RobberyController extends Controller
         }
 
         $robbery->finished = true;
+        $robbery->activity_excluded = true;
         $robbery->save();
 
         return response()->json([
@@ -301,6 +429,32 @@ class RobberyController extends Controller
         $robbery->save();
     }
 
+    private function queueDiscordReactionRemoval(Robbery $robbery, int $userId, string $action): void
+    {
+        if (!$robbery->discord_channel_id || !$robbery->discord_message_id) {
+            return;
+        }
+
+        $discordUserId = DB::table('users')
+            ->where('id', $userId)
+            ->value('discord_id');
+
+        if (!$discordUserId) {
+            return;
+        }
+
+        DB::table('discord_reaction_removal_jobs')->insert([
+            'robbery_id' => $robbery->id,
+            'user_id' => $userId,
+            'discord_user_id' => $discordUserId,
+            'discord_channel_id' => $robbery->discord_channel_id,
+            'discord_message_id' => $robbery->discord_message_id,
+            'action' => $action,
+            'created_at' => Carbon::now(config('app.timezone'))->format('Y-m-d H:i:s'),
+            'updated_at' => Carbon::now(config('app.timezone'))->format('Y-m-d H:i:s'),
+        ]);
+    }
+
     private function formatRobbery(Robbery $robbery): array
     {
         $activityOnly = $this->isActivityOnlyRobbery($robbery);
@@ -322,9 +476,11 @@ class RobberyController extends Controller
             'created_by' => $robbery->created_by,
             'name' => $robbery->name,
             'type' => $robbery->type,
+            'with_allies' => (bool) $robbery->with_allies,
             'participants_count' => (int) $robbery->participants_count,
             'applicants_count' => $payoutApplicantCount,
             'finished' => (bool) $robbery->finished,
+            'activity_excluded' => (bool) $robbery->activity_excluded,
             'author' => $robbery->author,
             'income_images' => $incomeImages->values(),
             'participants' => $this->getApplicationUsers('robbery_participants', $robbery->id),
@@ -338,7 +494,17 @@ class RobberyController extends Controller
 
     private function isActivityOnlyRobbery(Robbery $robbery): bool
     {
-        return strtoupper((string) $robbery->type) === 'OTHER';
+        return strtoupper((string) $robbery->type) === 'OTHER' || (bool) $robbery->with_allies;
+    }
+
+    private function canManageRobbery(Robbery $robbery, int $userId): bool
+    {
+        $actor = DB::table('users')
+            ->select('id', 'isAdmin')
+            ->where('id', $userId)
+            ->first();
+
+        return (int) $robbery->created_by === $userId || (bool) ($actor->isAdmin ?? false);
     }
 
     private function getApplicationUsers(string $table, int $robberyId)

@@ -38,6 +38,10 @@ class WeeklySubmissionController extends Controller
             'accepted' => false
         ]);
 
+        User::where('id', $request->user_id)->update([
+            'weeklyPayReminderSentFor' => null
+        ]);
+
         return response()->json([
             'message' => 'Heti leadandó elmentve',
             'item' => $item
@@ -94,6 +98,7 @@ class WeeklySubmissionController extends Controller
         if ($weeksToAdd > 0) {
             $currentWeeklyPay->addWeeks($weeksToAdd);
             $user->weeklyPay = $currentWeeklyPay->toDateString();
+            $user->weeklyPayReminderSentFor = null;
         }
 
         $user->save();

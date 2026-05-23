@@ -13,6 +13,7 @@ use App\Http\Controllers\RefundRequestController;
 use App\Http\Controllers\RobberyController;
 use App\Http\Controllers\NewsController;
 use App\Http\Controllers\DiscordBotController;
+use App\Http\Controllers\InactivityRequestController;
 
 Route::get('/user/{id}', [UserController::class, 'index']);
 Route::post('/add-user', [UserController::class, 'addUser']);
@@ -38,6 +39,13 @@ Route::get('/weekly-submission/pending', [WeeklySubmissionController::class, 'pe
 Route::patch('/weekly-submission/{id}/accept', [WeeklySubmissionController::class, 'accept']);
 Route::post('/weekly-submission', [WeeklySubmissionController::class, 'store']);
 Route::get('/weekly-submission/{userId}', [WeeklySubmissionController::class, 'index']);
+
+
+Route::get('/inactivity-requests/admin', [InactivityRequestController::class, 'adminIndex']);
+Route::get('/inactivity-requests/user/{userId}', [InactivityRequestController::class, 'byUser']);
+Route::post('/inactivity-requests', [InactivityRequestController::class, 'store']);
+Route::patch('/inactivity-requests/{id}/approve', [InactivityRequestController::class, 'approve']);
+Route::patch('/inactivity-requests/{id}/reject', [InactivityRequestController::class, 'reject']);
 
 
 Route::get('/refund-requests', [RefundRequestController::class, 'index']);
@@ -91,16 +99,28 @@ Route::delete('/news/{id}', [NewsController::class, 'destroy']);
 Route::get('/robberies', [RobberyController::class, 'index']);
 Route::post('/robberies', [RobberyController::class, 'store']);
 Route::post('/robberies/{id}/join', [RobberyController::class, 'join']);
+Route::delete('/robberies/{id}/join', [RobberyController::class, 'leave']);
 Route::post('/robberies/{id}/payout-request', [RobberyController::class, 'requestPayout']);
+Route::delete('/robberies/{id}/payout-request', [RobberyController::class, 'cancelPayout']);
 Route::post('/robberies/{id}/income-images', [RobberyController::class, 'storeIncome']);
 Route::patch('/robberies/{id}/finished', [RobberyController::class, 'updateFinished']);
 Route::delete('/robberies/{id}', [RobberyController::class, 'destroy']);
 
 
 Route::get('/bot/robberies/pending-announcements', [DiscordBotController::class, 'pendingRobberies']);
+Route::get('/bot/poll', [DiscordBotController::class, 'poll']);
+Route::post('/bot/robberies', [DiscordBotController::class, 'createRobbery']);
 Route::patch('/bot/robberies/{id}/discord-message', [DiscordBotController::class, 'recordDiscordMessage']);
 Route::post('/bot/robberies/discord-reaction', [DiscordBotController::class, 'handleReaction']);
 Route::post('/bot/robberies/discord-reaction/remove', [DiscordBotController::class, 'removeReaction']);
+Route::get('/bot/discord-reaction-removals', [DiscordBotController::class, 'pendingDiscordReactionRemovals']);
+Route::patch('/bot/discord-reaction-removals/{id}/processed', [DiscordBotController::class, 'markDiscordReactionRemovalProcessed']);
 Route::get('/bot/news/pending-announcements', [DiscordBotController::class, 'pendingNews']);
 Route::patch('/bot/news/{id}/discord-message', [DiscordBotController::class, 'recordNewsDiscordMessage']);
+Route::get('/bot/weekly-payment-reminders', [DiscordBotController::class, 'pendingWeeklyPaymentReminders']);
+Route::patch('/bot/weekly-payment-reminders/{id}/sent', [DiscordBotController::class, 'markWeeklyPaymentReminderSent']);
+Route::get('/bot/inactivity-reminders', [DiscordBotController::class, 'pendingInactivityReminders']);
+Route::patch('/bot/inactivity-reminders/{id}/sent', [DiscordBotController::class, 'markInactivityReminderSent']);
+Route::get('/bot/users/linked/{discordId}', [DiscordBotController::class, 'linkedUser']);
+Route::post('/bot/users/unlink', [DiscordBotController::class, 'unlinkUser']);
 Route::post('/bot/users/link', [DiscordBotController::class, 'linkUser']);

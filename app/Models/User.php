@@ -17,6 +17,7 @@ class User extends Authenticatable
         'warn',
         'weeklyPay',
         'weeklyPaymentRequired',
+        'weeklyPayReminderSentFor',
         'isAdmin',
         'rank_id',
         'lastRankup',
@@ -33,6 +34,7 @@ class User extends Authenticatable
         'createdAt' => 'date',
         'weeklyPay' => 'date',
         'weeklyPaymentRequired' => 'boolean',
+        'weeklyPayReminderSentFor' => 'date',
         'lastRankup' => 'datetime',
         'successfulCassettes' => 'integer'
     ];
@@ -88,6 +90,16 @@ class User extends Authenticatable
     public function handledRefundRequests()
     {
         return $this->hasMany(RefundRequest::class, 'handled_by');
+    }
+
+    public function inactivityRequests()
+    {
+        return $this->hasMany(InactivityRequest::class, 'user_id');
+    }
+
+    public function handledInactivityRequests()
+    {
+        return $this->hasMany(InactivityRequest::class, 'handled_by');
     }
 
     public function news()
